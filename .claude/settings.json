@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"console.log\\('sdk', require\\('./node_modules/@modelcontextprotocol/sdk/package.json'\\).version\\)\")",
+      "Bash(kill %1)",
+      "Bash(pkill -f \"grep -rn\")",
+      "Bash(node -e \"console.log\\('@vercel/node', require\\('./node_modules/@vercel/node/package.json'\\).version\\)\")",
+      "Bash(ps -W)",
+      "Bash(break)",
+      "Bash(curl -s -X POST localhost:3000/mcp -H \"Content-Type: application/json\" -H \"Accept: application/json, text/event-stream\" -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}')",
+      "Bash(curl -s -X POST localhost:3000/api/mcp -H \"Content-Type: application/json\" -H \"Accept: application/json, text/event-stream\" -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}')",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" localhost:3000/api/mcp)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" localhost:3000/definitely-not-a-route)",
+      "Bash(timeout 300 npx vercel@latest build)",
+      "Bash(timeout 300 npx vercel@latest build --yes)",
+      "Bash(cp package.json /tmp/pkg.bak)",
+      "Bash(cp package.json \"C:/Users/Admin/AppData/Local/Temp/claude/c--Users-Admin-Downloads-chatgpt-parser/354b63cf-8699-477a-8d21-ccfc056f6a99/scratchpad/pkg.bak\")",
+      "Bash(node -e ' *)",
+      "Bash(rm -rf .vercel/output)",
+      "Bash(cp \"C:/Users/Admin/AppData/Local/Temp/claude/c--Users-Admin-Downloads-chatgpt-parser/354b63cf-8699-477a-8d21-ccfc056f6a99/scratchpad/pkg.bak\" package.json)",
+      "Bash(cp /tmp/pkg.bak package.json)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" --max-time 10 localhost:3000/)",
+      "Bash(taskkill //PID 23720 //F)",
+      "Bash(curl -s --max-time 90 -X POST localhost:3000/mcp -H \"Content-Type: application/json\" -H \"Accept: application/json, text/event-stream\" -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}')",
+      "Bash(curl -s --max-time 90 -X POST localhost:3000/api/mcp -H \"Content-Type: application/json\" -H \"Accept: application/json, text/event-stream\" -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}')",
+      "Bash(node -e \"let s='';process.stdin.on\\('data',d=>s+=d\\).on\\('end',\\(\\)=>{const j=JSON.parse\\(s\\);console.log\\(j.result.tools.map\\(t=>t.name\\).join\\('\\\\n'\\)\\);}\\)\")",
+      "Bash(curl -s --max-time 60 -i localhost:3000/mcp)",
+      "Bash(curl -s --max-time 60 -i -X OPTIONS localhost:3000/mcp)",
+      "Bash(curl -s --max-time 90 -X POST localhost:3000/mcp -H \"Content-Type: application/json\" -H \"Accept: application/json, text/event-stream\" -d '{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"read_shared_chat\",\"arguments\":{\"url\":\"https://claude.ai/share/abc-123\"}}}')",
+      "Bash(curl -s --max-time 60 -o /dev/null -w \"status=%{http_code} type=%{content_type}\\\\n\" localhost:3000/)"
+    ]
+  }
+}

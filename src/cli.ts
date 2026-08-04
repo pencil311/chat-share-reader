@@ -15,7 +15,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { extractTranscript } from "./extract.js";
 import { toMarkdown, toPlainText } from "./markdown.js";
-import { buildServer } from "./server.js";
+import { buildServer } from "./mcpServer.js";
 import { ShareError } from "./types.js";
 
 async function runStdio(): Promise<void> {

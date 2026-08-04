@@ -1,3 +1,15 @@
+/**
+ * Builds the MCP server and registers its tools. Internal library code — it
+ * exports a factory, not an HTTP handler. The only HTTP entrypoint is api/mcp.ts.
+ *
+ * NOTE ON THE FILENAME: this must not be called `server.ts`. Vercel treats a
+ * file named `server.*` as a server entrypoint, compiles it to
+ * `/var/task/src/server.mjs`, and tries to launch it as the function entry —
+ * which fails with "Invalid export found in module ... The default export must
+ * be a function or server", because `buildServer()` is an McpServer factory.
+ * Renaming it keeps this file off Vercel's entrypoint heuristic entirely.
+ */
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 

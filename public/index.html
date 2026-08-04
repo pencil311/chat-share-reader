@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>chat-share-reader — MCP server</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fbfbfa; --fg:#1d1d1b; --muted:#6b6b66;
+          --card:#fff; --line:#e5e4e0; --accent:#c96442; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#1a1a18; --fg:#f2f1ee; --muted:#a3a29c; --card:#242422;
+            --line:#383834; --accent:#d97757; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:48px 20px; background:var(--bg); color:var(--fg);
+         font:16px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+  main { max-width: 640px; margin: 0 auto; }
+  h1 { font-size:1.6rem; margin:0 0 .3em; letter-spacing:-.02em; }
+  h2 { font-size:1rem; margin:2em 0 .5em; }
+  .lede { color:var(--muted); margin-top:0; }
+  code { background:rgba(127,127,127,.16); padding:.15em .4em; border-radius:5px;
+         font-size:.9em; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  pre { background:var(--card); border:1px solid var(--line); border-radius:10px;
+        padding:14px 16px; overflow-x:auto; }
+  pre code { background:none; padding:0; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line);
+           vertical-align:top; }
+  th { font-size:.8rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  .endpoint { display:inline-block; background:var(--card); border:1px solid var(--line);
+              border-left:3px solid var(--accent); border-radius:8px; padding:10px 14px;
+              font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.9rem; }
+  footer { color:var(--muted); font-size:.85rem; margin-top:40px;
+           border-top:1px solid var(--line); padding-top:16px; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>chat-share-reader</h1>
+  <p class="lede">An MCP server that reads public ChatGPT share links into
+  structured transcripts.</p>
+
+  <p class="endpoint">POST /mcp</p>
+
+  <p>This is a Model Context Protocol endpoint, not a web app — it speaks
+  JSON-RPC 2.0 over HTTP POST. Add the URL above as a custom MCP connector in
+  your AI client and it can read shared conversations instead of telling you it
+  can't open links.</p>
+
+  <h2>Tools</h2>
+  <table>
+    <tr><th>Tool</th><th>What it does</th></tr>
+    <tr><td><code>read_shared_chat</code></td>
+        <td>Parses a share link into a full transcript (markdown, json, or text).</td></tr>
+    <tr><td><code>get_shared_chat_metadata</code></td>
+        <td>Cheap preview: title, model, message count, first two messages.</td></tr>
+  </table>
+
+  <h2>Check it works</h2>
+  <pre><code>curl -X POST https://&lt;this-host&gt;/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'</code></pre>
+
+  <h2>Supported links</h2>
+  <table>
+    <tr><th>Platform</th><th>How</th></tr>
+    <tr><td>ChatGPT</td><td><code>chatgpt.com/share/…</code> — works here</td></tr>
+    <tr><td>Claude</td><td><code>claude.ai/share/…</code> — needs the browser
+      bookmarklet. Cloudflare blocks non-browser clients and the page is
+      client-side rendered, so no server can read it.</td></tr>
+  </table>
+
+  <footer>Reads only public share links, one request each — the same as opening
+  one in a browser.</footer>
+</main>
+</body>
+</html>

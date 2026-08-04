@@ -1,14 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "builds": [
-    {
-      "src": "api/mcp.ts",
-      "use": "@vercel/node",
-      "config": { "maxDuration": 60 }
-    }
-  ],
-  "routes": [
-    { "src": "/mcp", "dest": "/api/mcp" },
-    { "src": "/", "dest": "/api/mcp" }
+  "framework": null,
+  "buildCommand": "",
+  "outputDirectory": "public",
+  "functions": {
+    "api/mcp.ts": { "maxDuration": 60 }
+  },
+  "rewrites": [
+    { "source": "/mcp", "destination": "/api/mcp" }
   ]
 }

@@ -182,6 +182,25 @@ The bookmarklet walks `[class*="group/message-row"]` in document order, classifi
 
 **Stateless by default.** Each serverless invocation builds a fresh server and transport. Serverless functions don't share memory between invocations, so holding sessions across cold starts would fail unpredictably. These tools are pure request/response, so nothing is lost.
 
+**Vercel deployment has three sharp edges.** All three produce a 502 with no obvious link to the cause, so they're worth stating plainly:
+
+1. **Never name a file `server.ts`.** Vercel scans for a server entrypoint at `server.{js,ts,…}` and `src/server.{js,ts,…}`, compiles the match, and launches it as the function entry. It found `src/server.ts`, which exports an `McpServer` factory, and failed with *"Invalid export found in module `/var/task/src/server.mjs`. The default export must be a function or server."* That file is now `src/mcpServer.ts`. Same trap applies to `app.*`, `index.*`, and `main.*` in the root or `src/`.
+2. **The Framework Preset must be "Other", not "Node.js".** With `framework: "node"`, Vercel deploys the whole project as a Node server and **never builds `api/` at all** — `.vercel/output/functions/` contains one root function and no `api/mcp.func`, so every path falls through to it. `vercel.json` pins `"framework": null` so this survives a fresh clone and doesn't depend on dashboard settings.
+3. **`package.json` `"main"` is read as a server entrypoint.** With no `server.*` file present, Vercel falls back to `main` — here `dist/src/extract.js`, a library module — and builds *that* as the handler. `"framework": null` plus an explicit `outputDirectory` stops the entrypoint search entirely.
+
+The endpoint is a Node-style `(req, res)` handler. Vercel's Node runtime does accept web-standard handlers, but only as `export default { fetch(request) {…} }` or per-method exports (`export function GET(…)`); a bare `export default function handler(request: Request)` is invoked with Node's `(req, res)` instead, so the "Request" is really an `IncomingMessage` and the returned `Response` is discarded.
+
+Verify a deployment with:
+
+```bash
+curl -X POST https://<your-deployment>.vercel.app/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+A plain `GET /mcp` answers 405 with a readable JSON explanation rather than crashing, since people will open the URL in a browser. `/` serves a short landing page from `public/`.
+
 **Host allowlist.** Only the two ChatGPT hosts are ever fetched. Without this, a public MCP endpoint that takes a URL is an open SSRF proxy — anyone could point it at `169.254.169.254` or an internal service and read the response. (`claude.ai` stays in the allowlist so its URLs reach the specific `claude_not_supported` error rather than a generic "unsupported host".)
 
 **Claude fails loudly and early.** A tool that half-works is worse than one that says what it can't do. The Claude path throws before the fetch with a message naming both causes and pointing to the bookmarklet, so an agent gets a fact it can act on rather than a timeout to retry.
@@ -194,11 +213,13 @@ The bookmarklet walks `[class*="group/message-row"]` in document order, classifi
 
 ```bash
 npm install
-npm test          # 15 tests, synthetic fixtures, no network
+npm test          # 41 tests (15 parser + 26 bookmarklet), no network
 npm run dev -- https://chatgpt.com/share/...   # test against a real link
 npx tsc --noEmit  # typecheck
 
 cd bookmarklet && node build.js   # rebuild the Claude bookmarklet
+
+npx vercel dev    # run the MCP endpoint locally on :3000
 ```
 
 Tests use synthetic fixtures that mimic the real payload structures, so they keep passing after share links expire. **Validate against a real link before deploying** — these platforms change their internals without notice.

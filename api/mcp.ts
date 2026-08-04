@@ -1,16 +1,40 @@
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+/**
+ * The one and only HTTP entrypoint. Everything else in this repo is library
+ * code — see the filename note in src/mcpServer.ts for why that file must not
+ * be called `server.ts`.
+ *
+ * HANDLER SIGNATURE: this is a Node-style `(req, res)` handler, which is the
+ * long-standing @vercel/node contract. Vercel's Node runtime also accepts a
+ * web-standard handler, but only in the shapes it actually looks for —
+ * `export default { fetch(request) {...} }` or per-method exports like
+ * `export function GET(request) {...}`. A bare `export default function
+ * handler(request: Request)` is NOT one of them: the builder sees a
+ * default-exported function and invokes it with Node's `(req, res)`, so the
+ * "Request" arriving is really an IncomingMessage and the returned Response is
+ * dropped on the floor. That mismatch is what made the previous version fail.
+ */
 
-import { buildServer } from "../src/server.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+
+import { buildServer, SERVER_NAME, SERVER_VERSION } from "../src/mcpServer.js";
 
 export const config = { runtime: "nodejs" };
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Accept, Mcp-Session-Id, Mcp-Protocol-Version, Authorization",
+  "Access-Control-Allow-Headers":
+    "Content-Type, Accept, Mcp-Session-Id, Mcp-Protocol-Version, Authorization",
   "Access-Control-Expose-Headers": "Mcp-Session-Id",
   "Access-Control-Max-Age": "86400",
 };
+
+function applyCors(res: VercelResponse): void {
+  for (const [key, value] of Object.entries(CORS_HEADERS)) {
+    res.setHeader(key, value);
+  }
+}
 
 /**
  * Stateless MCP endpoint.
@@ -20,45 +44,63 @@ const CORS_HEADERS: Record<string, string> = {
  * sessions alive across cold starts would break unpredictably. The tools here
  * are pure request/response with no per-session state, so nothing is lost.
  */
-export default async function handler(request: Request): Promise<Response> {
-  if (request.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: CORS_HEADERS });
+export default async function handler(
+  req: VercelRequest,
+  res: VercelResponse
+): Promise<void> {
+  applyCors(res);
+
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
   }
 
-  const transport = new WebStandardStreamableHTTPServerTransport({
+  // People will paste this URL into a browser. Tell them what it is rather
+  // than letting the transport reject a GET with an opaque error.
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST, OPTIONS");
+    res.status(405).json({
+      error: "method_not_allowed",
+      message:
+        `This is a Model Context Protocol (MCP) endpoint, not a web page. ` +
+        `It speaks JSON-RPC 2.0 over HTTP POST, so there is nothing to see ` +
+        `in a browser. Add this URL as a custom MCP connector in your AI ` +
+        `client, or POST to it directly.`,
+      server: { name: SERVER_NAME, version: SERVER_VERSION },
+      example:
+        `curl -X POST <this-url> ` +
+        `-H 'Content-Type: application/json' ` +
+        `-H 'Accept: application/json, text/event-stream' ` +
+        `-d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`,
+      docs: "https://modelcontextprotocol.io",
+    });
+    return;
+  }
+
+  const server = buildServer();
+  const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined, // stateless
     enableJsonResponse: true,
   });
 
-  const server = buildServer();
-
   try {
     await server.connect(transport);
-    const response = await transport.handleRequest(request);
-
-    const headers = new Headers(response.headers);
-    for (const [k, v] of Object.entries(CORS_HEADERS)) headers.set(k, v);
-
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    });
+    // Vercel has already consumed and parsed the body for known content types;
+    // hand it over explicitly so the transport doesn't wait on a drained stream.
+    await transport.handleRequest(req, res, req.body);
   } catch (err) {
-    return new Response(
-      JSON.stringify({
+    const message = (err as Error)?.message ?? String(err);
+    // The transport may have started (or finished) the response already —
+    // writing a second set of headers would throw over the original error.
+    if (res.headersSent) {
+      res.end();
+    } else {
+      res.status(500).json({
         jsonrpc: "2.0",
-        error: {
-          code: -32603,
-          message: `Internal server error: ${(err as Error).message}`,
-        },
+        error: { code: -32603, message: `Internal server error: ${message}` },
         id: null,
-      }),
-      {
-        status: 500,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      }
-    );
+      });
+    }
   } finally {
     // Serverless invocations shouldn't leak handles between requests.
     await transport.close().catch(() => {});
