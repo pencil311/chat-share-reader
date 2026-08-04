@@ -45,20 +45,67 @@ See [`bookmarklet/README.md`](bookmarklet/README.md) for install, usage, and wha
 
 ## Quick start
 
-### Use it as a hosted MCP server (recommended)
+### Connect it to Claude
 
-Deploy your own copy:
+A hosted instance is already running, so there's nothing to deploy. The connector URL is:
 
-```bash
-git clone https://github.com/<you>/chat-share-reader.git
-cd chat-share-reader
-npm install
-npx vercel deploy --prod
+```
+https://chat-share-reader.vercel.app/mcp
 ```
 
-Then add it to your AI client. Your endpoint is `https://<your-deployment>.vercel.app/mcp`.
+No API key, no OAuth, no account — leave the advanced fields blank. The server only reads public share pages.
 
-**Claude (web / desktop)** — Settings → Connectors → **Add custom connector** → paste the URL.
+**1. Open Settings → Connectors, and click `Add`.**
+
+Claude Desktop: **Settings → Connectors**. Claude web: **claude.ai/settings/connectors**.
+
+![The Connectors settings page, with the Add button at the top right](docs/connectors-1-settings.png)
+
+**2. Choose `Add custom connector`.**
+
+`Browse connectors` is the directory of official integrations — this isn't one of those, so take the second option.
+
+![The Add menu open, showing Browse connectors and Add custom connector](docs/connectors-2-add-menu.png)
+
+**3. Give it a name, paste the URL, click `Add`.**
+
+The name is yours to pick — it's the label you'll see in the connector list. Leave **OAuth Client ID** and **Client Secret** empty; this server doesn't authenticate.
+
+![The Add custom connector dialog, with fields for Name and Remote MCP server URL](docs/connectors-3-custom-dialog.png)
+
+| Field | Value |
+| --- | --- |
+| Name | anything, e.g. `ai chat parser` |
+| Remote MCP server URL | `https://chat-share-reader.vercel.app/mcp` |
+| OAuth Client ID | leave blank |
+| OAuth Client Secret | leave blank |
+
+It should now show in your connector list as **Web · Custom** with a ✓.
+
+**4. Use it.** Paste a ChatGPT share link into any conversation and ask for what you want:
+
+> Read https://chatgpt.com/share/… and summarize the approach we settled on.
+
+> What did the assistant say about rate limiting in https://chatgpt.com/share/… ?
+
+> Pull the code blocks out of https://chatgpt.com/share/… and turn them into a working script.
+
+Claude calls `read_shared_chat` on its own — you don't need to name the tool. For a long conversation, ask for the preview first and it will use `get_shared_chat_metadata` instead.
+
+**Claude links don't work here, by design** — they can't be read by any server. See [About Claude links](#about-claude-links) and use the [bookmarklet](bookmarklet/README.md).
+
+#### Check it's alive
+
+```bash
+curl -X POST https://chat-share-reader.vercel.app/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+Both `read_shared_chat` and `get_shared_chat_metadata` should come back. Opening the URL in a browser gives a 405 with a plain-English explanation — that's expected, it's a POST-only endpoint. The root URL, [chat-share-reader.vercel.app](https://chat-share-reader.vercel.app), serves a short landing page.
+
+### Other clients
 
 **ChatGPT** — enable Developer mode in Settings → Connectors, then add the URL.
 
@@ -68,13 +115,24 @@ Then add it to your AI client. Your endpoint is `https://<your-deployment>.verce
 {
   "mcpServers": {
     "chat-share-reader": {
-      "url": "https://<your-deployment>.vercel.app/mcp"
+      "url": "https://chat-share-reader.vercel.app/mcp"
     }
   }
 }
 ```
 
-No API keys, no OAuth, no account. The server only reads public pages.
+### Deploy your own
+
+The hosted instance is a convenience, not a dependency. To run your own:
+
+```bash
+git clone https://github.com/<you>/chat-share-reader.git
+cd chat-share-reader
+npm install
+npx vercel deploy --prod
+```
+
+Your endpoint is then `https://<your-deployment>.vercel.app/mcp` — use that in place of the URL above. See [Design notes](#design-notes) for the three Vercel settings this repo pins, and why.
 
 ### Use it locally over stdio
 
