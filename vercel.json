@@ -3,8 +3,11 @@
   "functions": {
     "api/mcp.ts": { "maxDuration": 60 }
   },
-  "rewrites": [
-    { "source": "/mcp", "destination": "/api/mcp" },
-    { "source": "/", "destination": "/api/mcp" }
+  "builds": [
+    { "src": "api/mcp.ts", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/mcp", "dest": "/api/mcp" },
+    { "src": "/", "dest": "/api/mcp" }
   ]
 }
