@@ -256,23 +256,56 @@ consumed the entire 10 GB Fast Origin Transfer allowance for one billing period
 on a Hobby account. That quota is **account-wide**, so the blast radius was every
 other project on the account, not just this one.
 
-### What actually drives the meter
+### What actually happened — measured
+
+Pulled from Observability for the 30 days to 6 Oct 2026:
+
+| | Peak day (3–4 Oct) | 30 days |
+|---|---|---|
+| Function invocations | 1,200 | 9,500 (~317/day) |
+| Fast Origin Transfer | 2.36 GB | ~10 GB (the whole allowance) |
+| Incoming share of that | 698 KB — **0.03%** | — |
+| **Average response** | **2.01 MB** | — |
+| Error rate / timeouts | 0% / <0.1% | 0% / <0.1% |
+
+Read those numbers together and the usual suspects fall away:
+
+- **It wasn't request volume.** 317 invocations a day on average is a modest
+  endpoint, not a flood. A rate limiter alone would not have saved it.
+- **It wasn't abuse of the request path.** Incoming transfer was 0.03% of the
+  total, so nobody was POSTing large bodies at it.
+- **It wasn't a retry loop.** 0% errors and under 0.1% timeouts; clients were
+  getting clean 200s and not hammering.
+- **It was response size, full stop.** Two megabytes per response, sustained.
+  Unbounded transcripts of long conversations, serialised in full, every time.
+
+### Why caching was the wrong instinct
 
 Vercel measures Fast Origin Transfer as data between the CDN and the Function:
 incoming is the request headers and body, outgoing is the response headers and
-body. Two consequences are worth internalising before reaching for a fix:
+body. Two consequences follow, and both cut against the obvious fix:
 
 - **The share page this server downloads never counted.** That is an outbound
-  fetch from the function to a third party, not CDN↔Function traffic. It is
-  metered separately and is not what filled the quota.
-- **Caching the share page does not reduce it either.** A cache hit still returns
-  a full transcript from the function to the CDN, costing exactly what a miss
-  costs. CDN caching, which would genuinely skip the function, doesn't apply:
-  MCP is JSON-RPC over POST, and POST responses aren't CDN-cacheable.
+  fetch from the function to a third party, not CDN↔Function traffic.
+- **Caching the share page would not have saved a single byte.** A cache hit
+  still returns a full 2 MB transcript from the function to the CDN, costing
+  exactly what a miss costs. CDN caching, which *would* genuinely skip the
+  function, doesn't apply: MCP is JSON-RPC over POST, and POST responses aren't
+  CDN-cacheable.
 
-So only two levers move the number — **how many requests reach the function**,
-and **how many bytes each response carries back**. Everything below is one of
-those two.
+So only two levers move the meter — request count, and bytes per response. The
+measurements say the second one was the whole problem.
+
+### What the fix does to those numbers
+
+Capping a response at 48 KB is a **43× reduction** on the observed average:
+
+| | Before | After |
+|---|---|---|
+| Peak day | 2,360 MB | ~56 MB |
+| 30 days | ~10 GB (100% of allowance) | ~445 MB (4%) |
+
+That holds even at the same traffic, with no rate limiting and no auth.
 
 ### Controls in this repo
 
@@ -320,16 +353,19 @@ has no on-demand billing, so quota exhaustion degrades everything you host.
 
 ### Should the endpoint stay public?
 
-Honest answer: **gate it.** Set `MCP_AUTH_TOKEN` and hand the token to whoever
-should have it.
+Now that the numbers are in, this is a weaker call than it first looked. The
+response budget alone brings a repeat of the same traffic to about 4% of the
+Hobby allowance, so **staying open is defensible** — the bill was never really
+about who was calling.
 
-The argument for staying open was that anyone could add the connector in one
-click. That is a real benefit, but the cost of every anonymous request lands on
-one personal account whose quota is shared with projects other people depend on.
-A bearer token keeps the one-click experience for anyone you give a token to,
-and removes the part where strangers decide your bandwidth bill. If you do want
-it open to the world, run it somewhere the failure mode is throttling rather than
-account-wide exhaustion, and treat the WAF rule as mandatory rather than optional.
+Set `MCP_AUTH_TOKEN` if you want to decide who uses it, or if the thought of
+strangers driving an endpoint on an account that also hosts things other people
+depend on bothers you. Those are good reasons. "Otherwise it will blow the quota
+again" is no longer one of them.
+
+What is *not* optional, whichever way you go: the WAF rule and usage alerts
+above. The failure mode worth engineering against isn't this incident repeating
+— it's the next one, which will look different.
 
 ---
 

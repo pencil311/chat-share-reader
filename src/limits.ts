@@ -5,6 +5,13 @@
  * Hobby Fast Origin Transfer allowance for a billing period, which is an
  * account-wide quota — it put unrelated projects at risk of being throttled.
  *
+ * The Observability numbers for the 30 days to 6 Oct name the cause precisely:
+ * 9,500 invocations (~317/day), 0% errors, and incoming transfer at 0.03% of
+ * the total. Volume was ordinary and nothing was looping; the average response
+ * was 2.01 MB. On the peak day, 1,200 requests moved 2.36 GB. It was response
+ * size alone, which is why maxResponseBytes below is the load-bearing number
+ * here and the rate limiter is a backstop rather than the fix.
+ *
  * The mechanism matters for picking the right fix. Vercel defines Fast Origin
  * Transfer as data moving between the CDN and the Function: incoming = request
  * headers + body, outgoing = response headers + body. It does NOT include what
