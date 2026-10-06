@@ -17,7 +17,10 @@
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
+import { UNAUTHORIZED_BODY, authRequired, checkAuth } from "../src/auth.js";
+import { LIMITS, utf8Bytes } from "../src/limits.js";
 import { buildServer, SERVER_NAME, SERVER_VERSION } from "../src/mcpServer.js";
+import { callerKey, checkRateLimit, rateLimitBody } from "../src/rateLimit.js";
 
 export const config = { runtime: "nodejs" };
 
@@ -59,6 +62,10 @@ export default async function handler(
   // than letting the transport reject a GET with an opaque error.
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST, OPTIONS");
+    // Crawlers and pasted-in-a-browser visits all land here. Let the CDN hold
+    // the answer so repeat GETs stop reaching the function at all; a 405 is
+    // the same for everyone and never goes stale.
+    res.setHeader("Cache-Control", "public, max-age=3600, s-maxage=86400");
     res.status(405).json({
       error: "method_not_allowed",
       message:
@@ -74,6 +81,45 @@ export default async function handler(
         `-d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`,
       docs: "https://modelcontextprotocol.io",
     });
+    return;
+  }
+
+  // --- Admission checks, cheapest first -----------------------------------
+  //
+  // Everything here runs before the MCP server is constructed and before any
+  // outbound fetch. Each rejection still costs one invocation and a few hundred
+  // bytes of Fast Origin Transfer, so the bodies are deliberately terse. The
+  // only control that costs nothing at all is a Vercel WAF rule, which rejects
+  // at the edge — see README.
+
+  const auth = checkAuth(req.headers.authorization);
+  if (!auth.ok) {
+    res.setHeader("WWW-Authenticate", "Bearer");
+    res.status(401).json(UNAUTHORIZED_BODY);
+    return;
+  }
+
+  // Oversized bodies are incoming transfer and a parse cost; a legitimate call
+  // here is a URL and a few flags.
+  const rawBody = req.body;
+  if (rawBody !== undefined) {
+    const approxBytes =
+      typeof rawBody === "string"
+        ? utf8Bytes(rawBody)
+        : utf8Bytes(JSON.stringify(rawBody ?? null));
+    if (approxBytes > LIMITS.maxRequestBodyBytes) {
+      res.status(413).json({
+        error: "payload_too_large",
+        message: `Request body exceeds ${LIMITS.maxRequestBodyBytes} bytes.`,
+      });
+      return;
+    }
+  }
+
+  const verdict = await checkRateLimit(callerKey(req.headers, auth.subject));
+  if (!verdict.allowed) {
+    res.setHeader("Retry-After", String(verdict.retryAfterSec ?? 60));
+    res.status(429).json(rateLimitBody(verdict));
     return;
   }
 

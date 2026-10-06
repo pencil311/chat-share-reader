@@ -182,6 +182,18 @@ Fetches and parses a ChatGPT share link into a full transcript.
 | `format` | `markdown` \| `json` \| `text` | `markdown` | Output shape |
 | `include_reasoning` | boolean | `false` | Include thinking / reasoning blocks |
 | `include_tool_output` | boolean | `false` | Include tool calls and results |
+| `offset` | integer | `0` | Index of the first message to return |
+| `limit` | integer | `40` | Max messages per page (hard cap `200`) |
+
+Long conversations come back **a page at a time**. A response is capped at 48 KB,
+so a page of very long messages may return fewer than `limit`. Markdown and text
+results end with a line naming the next offset; JSON results carry a `window`
+object with `nextOffset`. Keep calling with the advertised offset until
+`nextOffset` is `null`.
+
+This is a bandwidth control first (see [Running it safely](#running-it-safely))
+and a courtesy to the caller second — an unbounded transcript lands straight in
+the model's context window.
 
 ### `get_shared_chat_metadata`
 
@@ -233,6 +245,91 @@ Fallbacks are layered: modern Flight → legacy `__NEXT_DATA__` → any `applica
 The bookmarklet walks `[class*="group/message-row"]` in document order, classifies each turn, and converts the rendered HTML to Markdown. Its selectors are layered the same way — `standard-markdown` → `font-claude-response` → the row itself — and every content selector goes through an outermost-only filter, because `font-claude-response` is applied at several nesting levels (48 matches for ~3 messages on the page it was built against). See [`bookmarklet/README.md`](bookmarklet/README.md).
 
 `src/parsers/claude.ts` is still in the repo but no longer on the fetch path. It's kept in case a public share API or server-rendered share page ever appears; its header comment explains why it's currently unreachable.
+
+---
+
+## Running it safely
+
+A public, unauthenticated endpoint that takes a URL, fetches it, and returns the
+result is cheap to call and expensive to serve. On 2026-10-05 this project
+consumed the entire 10 GB Fast Origin Transfer allowance for one billing period
+on a Hobby account. That quota is **account-wide**, so the blast radius was every
+other project on the account, not just this one.
+
+### What actually drives the meter
+
+Vercel measures Fast Origin Transfer as data between the CDN and the Function:
+incoming is the request headers and body, outgoing is the response headers and
+body. Two consequences are worth internalising before reaching for a fix:
+
+- **The share page this server downloads never counted.** That is an outbound
+  fetch from the function to a third party, not CDN↔Function traffic. It is
+  metered separately and is not what filled the quota.
+- **Caching the share page does not reduce it either.** A cache hit still returns
+  a full transcript from the function to the CDN, costing exactly what a miss
+  costs. CDN caching, which would genuinely skip the function, doesn't apply:
+  MCP is JSON-RPC over POST, and POST responses aren't CDN-cacheable.
+
+So only two levers move the number — **how many requests reach the function**,
+and **how many bytes each response carries back**. Everything below is one of
+those two.
+
+### Controls in this repo
+
+| Control | Lever | Default |
+|---|---|---|
+| Response budget (`src/budget.ts`) | bytes/response | **on** — 48 KB cap, 40 messages/page |
+| Request body cap (`src/limits.ts`) | bytes/request | **on** — 32 KB, then `413` |
+| Rate limit (`src/rateLimit.ts`) | requests | **on** — 20/min and 120/hour per caller |
+| Bearer auth (`src/auth.ts`) | requests | **off** until `MCP_AUTH_TOKEN` is set |
+| Page cache (`src/cache.ts`) | *not bandwidth* | **on** — 15 min; saves latency and load on ChatGPT |
+
+Measured effect of the response budget: a 400-message conversation serialised to
+**over 3 MB** before, and is capped at **48 KB** now.
+
+### Environment variables
+
+| Variable | Effect |
+|---|---|
+| `MCP_AUTH_TOKEN` | Comma-separated bearer tokens. Set it and the endpoint requires `Authorization: Bearer <token>`; leave it unset and the endpoint stays open with rate limiting only. |
+| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Makes rate-limit counters and the page cache **global**. Strongly recommended — see the caveat below. |
+
+> **Without a shared store, rate limiting is a floor, not a guarantee.** Counters
+> live in each instance's memory, and serverless spreads traffic across
+> instances, so a distributed caller slips past. Upstash is reached over plain
+> `fetch` with no SDK, so the same code works on Vercel, Cloudflare Workers, or
+> locally.
+
+### The control that costs nothing: a WAF rule
+
+Every control in this repo runs *inside* the function, so a rejected request has
+already paid for an invocation and a few hundred bytes. A Vercel WAF rate-limit
+rule rejects at the edge and costs **zero** Fast Origin Transfer. If this stays
+on Vercel, add one — it is strictly better than the in-function limiter, which
+then becomes a backstop:
+
+**Project → Firewall → Configure → Add Rule**
+
+- Condition: Request Path equals `/mcp` (add a second for `/api/mcp`)
+- Action: Rate Limit — 20 requests per 60s, keyed on IP
+- Then: Deny
+
+Also set **Usage Alerts** on the account (Billing → Usage) so the next anomaly
+pages you at 50% rather than surfacing as a suspended project. A Hobby account
+has no on-demand billing, so quota exhaustion degrades everything you host.
+
+### Should the endpoint stay public?
+
+Honest answer: **gate it.** Set `MCP_AUTH_TOKEN` and hand the token to whoever
+should have it.
+
+The argument for staying open was that anyone could add the connector in one
+click. That is a real benefit, but the cost of every anonymous request lands on
+one personal account whose quota is shared with projects other people depend on.
+A bearer token keeps the one-click experience for anyone you give a token to,
+and removes the part where strangers decide your bandwidth bill. If you do want
+it open to the world, run it somewhere the failure mode is throttling rather than
+account-wide exhaustion, and treat the WAF rule as mandatory rather than optional.
 
 ---
 

@@ -1,3 +1,4 @@
+import { getCachedPage, setCachedPage } from "./cache.js";
 import { assertAllowedUrl, fetchSharePage } from "./fetchPage.js";
 import { parseChatGPT } from "./parsers/chatgpt.js";
 import {
@@ -53,7 +54,16 @@ export async function extractTranscript(
     );
   }
 
-  const html = await fetchSharePage(url);
+  // Cache the page, not the rendered transcript: the same conversation gets
+  // read at different offsets and formats, and those shouldn't each need their
+  // own fetch. See cache.ts for why this helps latency and ChatGPT's servers
+  // but not the Fast Origin Transfer bill.
+  const href = url.toString();
+  let html = await getCachedPage(href);
+  if (html === null) {
+    html = await fetchSharePage(url);
+    await setCachedPage(href, html);
+  }
 
-  return parseChatGPT(html, url.toString(), options);
+  return parseChatGPT(html, href, options);
 }

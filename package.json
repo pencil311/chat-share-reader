@@ -18,10 +18,11 @@
     "build": "tsc",
     "dev": "tsx src/cli.ts",
     "stdio": "tsx src/cli.ts --stdio",
-    "test": "npm run test:parsers && npm run test:bookmarklet",
+    "test": "npm run test:parsers && npm run test:limits && npm run test:bookmarklet",
     "test:parsers": "tsx test/parsers.test.ts",
     "test:bookmarklet": "node bookmarklet/build.js && node bookmarklet/test/export.test.mjs",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "test:limits": "tsx test/limits.test.ts"
   },
   "keywords": [
     "mcp",

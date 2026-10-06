@@ -13,8 +13,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
+import { buildWindow } from "./budget.js";
 import { extractTranscript } from "./extract.js";
-import { toMarkdown, toPlainText } from "./markdown.js";
+import { LIMITS } from "./limits.js";
 import { ShareError } from "./types.js";
 
 export const SERVER_NAME = "chat-share-reader";
@@ -75,9 +76,11 @@ export function buildServer(): McpServer {
         "Fetch and parse a public ChatGPT share link (chatgpt.com/share/... or " +
         "chat.openai.com/share/...) into a readable transcript. Use this " +
         "whenever the user pastes one and wants it read, summarized, " +
-        "continued, or analyzed. Returns the full conversation with roles, " +
-        "message order, and metadata. ChatGPT only — claude.ai/share links " +
-        "return claude_not_supported and need the browser bookmarklet instead.",
+        "continued, or analyzed. Returns the conversation with roles, message " +
+        "order, and metadata, a page at a time — long chats are split across " +
+        "pages and the result tells you the next offset. ChatGPT only — " +
+        "claude.ai/share links return claude_not_supported and need the " +
+        "browser bookmarklet instead.",
       inputSchema: {
         url: urlSchema,
         format: formatSchema,
@@ -89,25 +92,41 @@ export function buildServer(): McpServer {
           .boolean()
           .default(false)
           .describe("Include tool calls and their results."),
+        offset: z
+          .number()
+          .int()
+          .min(0)
+          .default(0)
+          .describe(
+            "Index of the first message to return. Long conversations come " +
+              "back a page at a time; the result says what the next offset is."
+          ),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(LIMITS.maxMessageLimit)
+          .default(LIMITS.defaultMessageLimit)
+          .describe(
+            `Maximum messages to return (default ${LIMITS.defaultMessageLimit}, ` +
+              `hard cap ${LIMITS.maxMessageLimit}). A response byte budget ` +
+              `applies on top, so a page of very long messages may return fewer.`
+          ),
       },
       annotations: {
         readOnlyHint: true,
         openWorldHint: true,
       },
     },
-    async ({ url, format, include_reasoning, include_tool_output }) => {
+    async ({ url, format, include_reasoning, include_tool_output, offset, limit }) => {
       try {
         const transcript = await extractTranscript(url, {
           includeReasoning: include_reasoning,
           includeToolOutput: include_tool_output,
         });
 
-        const text =
-          format === "json"
-            ? JSON.stringify(transcript, null, 2)
-            : format === "text"
-            ? toPlainText(transcript)
-            : toMarkdown(transcript);
+        // Never serialise the whole conversation: see budget.ts.
+        const { text } = buildWindow(transcript, { offset, limit, format });
 
         return { content: [{ type: "text" as const, text }] };
       } catch (err) {
